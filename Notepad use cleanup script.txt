@@ -1,0 +1,21 @@
+update ITEMS
+set COMPLETION_CODE = 'C',
+       COMPLETION_DTE = getdate(),
+       USER_NAME  = 'XXX-XXX',
+       JOB_NAME = 'complete_old_actions',
+       JOB_TIME = getdate()
+where MODULE_CODE = 'AD' and
+       ITEM_DATE <= '09/15/2016'
+and ITEM_TYPE = 'ACTION'
+and COMPLETION_CODE = 'P'
+
+
+update ITEMS
+set ACTIVE_INACTIVE = 'I',
+       USER_NAME  = 'XXX-XXX',
+       JOB_NAME = 'complete_old_actions',
+       JOB_TIME = getdate()
+where MODULE_CODE = 'AD' and
+       ITEM_DATE <= '09/15/2016'
+and ITEM_TYPE = 'ACTLST'
+and ACTIVE_INACTIVE = 'A'
