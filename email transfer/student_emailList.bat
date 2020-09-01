@@ -1,0 +1,2 @@
+"C:\Program Files\Microsoft SQL Server\110\DTS\Binn\DTExec.exe" /f  "C:\Steps\email_transfer\Student_Email_List.dtsx"
+DTEXEC /dts "C:\Steps\email_transfer\Student_Email_List.dtsx" /CommandFile "C:\Steps\email_transfer\Student_Email_List.xls"
