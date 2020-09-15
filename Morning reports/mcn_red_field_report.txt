@@ -1,0 +1,275 @@
+USE [TmsEPly]
+GO
+/****** Object:  StoredProcedure [dbo].[MCN_Red_Field_Report]    Script Date: 11/11/2015 12:11:19 ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:	Ripa Shah
+-- Create date: 6/15/2016
+-- Description:	Red Field report generator, used to validate data stored in EX
+-- Change Log: 6/24/2016 - Added severity information to comments
+-- =============================================
+
+-- =============================================
+-- SEVERITY
+-- Add together the following values to determine the severity level for a given query
+-- 1 NMHED eDEAR report warning 
+-- 2 NMHED eDEAR report fatal error, cannot submit report with this data
+-- 1 Institutional data quality standard
+-- 2 IPEDS report requirement
+-- =============================================
+
+ALTER PROCEDURE [dbo].[MCN_Red_Field_Report]
+AS
+BEGIN
+	
+	SET NOCOUNT ON;
+
+	DECLARE @RESULTS table ( ID_NUM int, SEVERITY int, MODULE char(2), RESULT nvarchar(512) )
+	DECLARE @DATASET table ( ID_NUM int)
+	DECLARE @DAYSBACK int
+	DECLARE @MESSAGE nvarchar(MAX), @MESSAGELINE nvarchar(MAX)
+	DECLARE @FROM nvarchar(32), @TO nvarchar(64), @SUBJ nvarchar(64)
+
+	SET @FROM = 'no-reply@mesalands.edu'
+	SET @TO = 'larryw@mesalands.edu,amberm@mesalands.edu'
+	SET @SUBJ = 'Red Field Report '+ CONVERT(CHAR, GETDATE(),101)
+
+	---- Define the set if ID_NUM to evaluate
+	INSERT INTO @DATASET
+	SELECT DISTINCT(ID_NUM) FROM STUDENT_CRS_HIST where yr_cde = (SELECT CUR_YR_DFLT from REG_CONFIG)
+
+	--- Find people who have a space in thier first name
+
+	INSERT INTO @RESULTS 
+	SELECT ID_NUM, 
+				'1' AS SEVERITY, 
+				'CM' AS MODULE,
+				'First name contains a space: ' + RTRIM(FIRST_NAME) as RESULT
+			FROM NAME_MASTER 
+			WHERE RTRIM(FIRST_NAME) like '% %' AND NAME_FORMAT IS NULL
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+	
+	--- Identify NM Cites with mismatched county codes
+	INSERT INTO @RESULTS
+	SELECT a.ID_NUM,
+				'3' AS SEVERITY,
+				'CM' AS MODULE,
+				'County code : ' + a.COUNTY + ' is not valid for city: ' + a.CITY as RESULT
+			FROM ADDRESS_MASTER a, MCN_NMHED_Point_of_Delivery_County_Codes m
+			WHERE a.ADDR_CDE = '*LHP'
+			AND a.[STATE] = 'NM'
+			AND a.CITY = m.CityDescription
+			AND a.COUNTY <> m.CountyCode
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+	
+	--- Identify misentered STARSIDs
+	INSERT INTO @RESULTS 
+	SELECT ID_NUM, 
+				'2' AS SEVERITY, 
+				'AD' AS MODULE,
+				'STARSID is invalid: ' + RTRIM(BAR_CDE_ID) as RESULT
+			FROM BIOGRAPH_MASTER 
+			WHERE 
+			BAR_CDE_ID NOT LIKE '[0123456789][0123456789][0123456789][0123456789][0123456789][0123456789][0123456789][0123456789][0123456789]'
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+	
+	--- Identify students without a DOB
+	INSERT INTO @RESULTS 
+	SELECT ID_NUM, 
+				'3' AS SEVERITY, 
+				'AD' AS MODULE,
+				'Date of Birth is blank. ' as RESULT
+			FROM BIOGRAPH_MASTER 
+			WHERE BIRTH_DTE IS NULL 
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+
+
+	--- Identify people with a peculiar age for state reporting
+	INSERT INTO @RESULTS 
+	SELECT ID_NUM, 
+				'1' AS SEVERITY, 
+				'AD' AS MODULE,
+				'Age is out of standard range :' + CONVERT(CHAR(3),DATEDIFF(hour,BIRTH_DTE,GETDATE())/8766) + ' DOB: ' + CONVERT(char(10),BIRTH_DTE,101) as RESULT
+			FROM BIOGRAPH_MASTER 
+			WHERE JOB_TIME > dateadd(day,-90,getdate())
+			AND DATEDIFF(hour,BIRTH_DTE,GETDATE())/8766 NOT BETWEEN 13 and 85
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+
+	 
+	--- Identify bad gender coding
+	INSERT INTO @RESULTS 
+	SELECT ID_NUM, 
+				'2' AS SEVERITY, 
+				'AD' AS MODULE,
+				'Gender is invalid: ' + RTRIM(GENDER) as RESULT
+			FROM BIOGRAPH_MASTER 
+			WHERE GENDER NOT IN  ('M','F')
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+
+
+
+	--- Identify students without entrance term
+	INSERT INTO @RESULTS 
+	SELECT ID_NUM,  
+				'5' AS SEVERITY, 
+				'RE' AS MODULE,
+				'Student does not have entrance year or term defined. Class code is NOT CE' as RESULT
+			FROM STUDENT_MASTER 
+			WHERE (ENTRANCE_TRM IS NULL or ENTRANCE_YR IS NULL)
+			AND CURRENT_CLASS_CDE <> 'CE' 
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+	
+	--- Tuition code missing
+	INSERT INTO @RESULTS
+	SELECT ID_NUM,  
+				'5' AS SEVERITY, 
+				'RE' AS MODULE,
+				'Student does not have a tuition code defined.' as RESULT
+			FROM STUDENT_MASTER 
+			WHERE TUITION_CDE IS NULL 
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+	
+	----Evaluate Residency
+	INSERT INTO @RESULTS
+	SELECT ID_NUM,  
+				'3' AS SEVERITY, 
+				'RE' AS MODULE,
+				'Student Residency Code: ' + RESID_CDE + ' not a valid New Mexico county for *LHP Address.' as RESULT
+			FROM STUDENT_MASTER 
+			WHERE RESID_CDE >= 199
+			AND (SELECT [STATE] FROM ADDRESS_MASTER WHERE ADDR_CDE = '*LHP' and ID_NUM = STUDENT_MASTER.ID_NUM) = 'NM' 
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+
+	--- Find students without an advisor
+	INSERT INTO @RESULTS
+	SELECT DISTINCT(ID_NUM),  
+				'1' AS SEVERITY, 
+				'RE' AS MODULE,
+				'Student does not have an advisor defined.' as RESULT
+			FROM STUDENT_DIV_MAST 
+			WHERE ADVISOR_ID_NUM IS NULL 
+			AND DIV_CDE = 'UG'
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+	
+	
+	--- Find students without an advisor
+	INSERT INTO @RESULTS
+	SELECT DISTINCT(ID_NUM),  
+				'1' AS SEVERITY, 
+				'RE' AS MODULE,
+				'Student''s advisor is no longer an active employee.' as RESULT
+			FROM STUDENT_DIV_MAST 
+			WHERE ADVISOR_ID_NUM IN ( SELECT ID_NUM FROM EMPL_MAST WHERE ACT_INACT_STS <> 'A')
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+
+
+	--- Identify students without entrance term
+	INSERT INTO @RESULTS 
+	SELECT ID_NUM,  
+				'5' AS SEVERITY, 
+				'RE' AS MODULE,
+				'Student does not have expected graduation year or term defined.' as RESULT
+			FROM STUDENT_DIV_MAST
+			WHERE (EXPECTED_GRAD_TRM IS NULL or EXPECTED_GRAD_YR IS NULL)
+			AND (SELECT CURRENT_CLASS_CDE FROM STUDENT_MASTER WHERE ID_NUM = STUDENT_DIV_MAST.ID_NUM) <> 'CE' 
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+
+	--- Identify students with a HS grad date but no type
+	INSERT INTO @RESULTS 
+	SELECT ID_NUM,  
+				'3' AS SEVERITY, 
+				'RE' AS MODULE,
+				'Student has a High School Graduation Date :' + CONVERT(char(10),HIGH_SCH_GRAD_DTE,101) +' but the type of HS graduation is not defined.' as RESULT
+			FROM STUDENT_MASTER
+			WHERE HIGH_SCH_GRAD_DTE IS NOT NULL
+			AND HIGH_SCH_GRAD_TYPE IS NULL
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+
+	--- Identify students with a HS grad type but no date
+	INSERT INTO @RESULTS 
+	SELECT ID_NUM,  
+				'3' AS SEVERITY, 
+				'RE' AS MODULE,
+				'Student has a High School Graduation type ('+ HIGH_SCH_GRAD_TYPE + ') but the date of HS graduation is not defined.' as RESULT
+			FROM STUDENT_MASTER
+			WHERE HIGH_SCH_GRAD_DTE IS NULL
+			AND HIGH_SCH_GRAD_TYPE IS NOT NULL
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+
+	--- Identify students with a ever attended college but no prev_college_cde
+	INSERT INTO @RESULTS 
+	SELECT ID_NUM,  
+				'3' AS SEVERITY, 
+				'RE' AS MODULE,
+				'Student has attended college previously but the college code is not defined.' as RESULT
+			FROM STUDENT_MASTER
+			WHERE EVER_ATTENDED = 'Y'
+			AND PREV_COLLEGE_CDE IS NULL
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+
+	--- Identify students with a prev_college_cde and not flagged as ever attended
+	INSERT INTO @RESULTS 
+	SELECT ID_NUM,  
+				'3' AS SEVERITY, 
+				'RE' AS MODULE,
+				'Student has previous college code but attended previously is not checked.' as RESULT
+			FROM STUDENT_MASTER
+			WHERE EVER_ATTENDED = 'N'
+			AND PREV_COLLEGE_CDE IS NOT NULL
+			AND ID_NUM IN (SELECT ID_NUM FROM @DATASET)
+
+---------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------------------------------------------------------------------------
+
+	SET @MESSAGE = '<style> body { font-family:Arial; } table {border-collapse:collapse;} table,th, td {border: 1px solid black;} </style>'
+	SET @MESSAGE = @MESSAGE + '<table>'
+	SET @MESSAGE = @MESSAGE + '<tr><th>ID Number</th><th>Severity</th><th>Description</th></tr>'
+	DECLARE RESULT_CURSOR CURSOR FOR
+		SELECT '<tr><td>' + convert(CHAR(7),ID_NUM) + '</td><td>' + convert(CHAR(1),SEVERITY) + '</td><td>' + RTRIM(RESULT) + '</td></tr>' + CHAR(13) as LINE FROM @RESULTS ORDER BY ID_NUM , SEVERITY
+
+	OPEN RESULT_CURSOR
+	WHILE (42=42)
+	
+	BEGIN
+		FETCH	NEXT FROM RESULT_CURSOR
+			INTO @MESSAGELINE
+		IF (@@FETCH_STATUS = -1)
+			break
+
+		IF (@@FETCH_STATUS = -2)
+			continue
+
+		IF (@@FETCH_STATUS <> 0)
+			begin
+				select	@MESSAGELINE = 'Unexpected Fetch_Status=' + convert(varchar(200),@@fetch_status)
+				break
+			end
+	
+		SELECT @MESSAGE = @MESSAGE + @MESSAGELINE
+	
+	END
+
+	DEALLOCATE RESULT_CURSOR
+
+
+	SELECT @MESSAGE = @MESSAGE + '</table>'
+
+	PRINT @MESSAGE
+
+	
+	EXEC CUS_sp_CreateNotificationSingleRecipient 
+												@FROM, 
+												@TO, 
+												'EXTERNALEMAIL',
+												@SUBJ, 
+												@MESSAGE, 
+												'html',
+												'Y'
+END
+
