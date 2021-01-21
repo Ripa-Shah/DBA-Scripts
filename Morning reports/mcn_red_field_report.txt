@@ -34,7 +34,7 @@ BEGIN
 	DECLARE @FROM nvarchar(32), @TO nvarchar(64), @SUBJ nvarchar(64)
 
 	SET @FROM = 'no-reply@mesalands.edu'
-	SET @TO = 'larryw@mesalands.edu,amberm@mesalands.edu'
+	SET @TO = 'ripas@mesalands.edu'
 	SET @SUBJ = 'Red Field Report '+ CONVERT(CHAR, GETDATE(),101)
 
 	---- Define the set if ID_NUM to evaluate
