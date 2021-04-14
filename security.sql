@@ -29,9 +29,3 @@ alter server role serverconfigadmin
 add member brandon;
 
 
---principals are assigned permission to securables
-use master
-go
-grant control on login ::[michael] to [brandon];
-grant create any database to [michael];
-grant connect on endpoint::[TSQL Named Pipes] to [Rufus];
