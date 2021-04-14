@@ -118,3 +118,29 @@ restore headeronly from disk='C:\Program Files\Microsoft SQL Server\MSSQL13.MSSQ
 restore filelistonly from disk='C:\Program Files\Microsoft SQL Server\MSSQL13.MSSQL\MSSQL\Backup\AdventureWorksDW2014_bak.bak'
 
 restore labelonly from disk='C:\Program Files\Microsoft SQL Server\MSSQL13.MSSQL\MSSQL\Backup\AdventureWorksDW2014_bak.bak'
+
+backup log AdventureWorksDW2014
+to disk='C:\Program Files\Microsoft SQL Server\MSSQL13.MSSQL\MSSQL\Backup\AdventureWorksDW2014_tail.trn'
+with continue_after_Error
+
+
+use master
+GO
+create master key encryption by password='abcd1234';
+create certificate backupcert with subject='backup certificate';
+
+create credential azurebackup
+with identity='storagelocalac',
+secret='MXQCwVu1G+6m7kchlu5pPl1bgU6kvLDIxvDCUjr0BOtDEg4zc8sBV9vuiZOy2Wn5B1V46Fa3JKZEVXjkQF2x3g=='
+
+
+backup database BookStore
+to url='https://storagelocalac.blob.core.windows.net/sqltest'
+with credential='azurebackup',
+compression,
+encryption
+( algorithm=AES_256,
+server certificate=backupcert)
+go
+select * from sys.backup_devices
+
