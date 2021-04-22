@@ -1,6 +1,8 @@
+USe AdventureWorksDW2014
+GO
 begin tran;
 
-update FactSalesQuota set EmployeeKey=286 where SalesQuotaKey=6;
+update dbo.FactSalesQuota set EmployeeKey=286 where SalesQuotaKey=6;
 
 
-select * from FactSalesQuota;
+select * from dbo.FactSalesQuota;
