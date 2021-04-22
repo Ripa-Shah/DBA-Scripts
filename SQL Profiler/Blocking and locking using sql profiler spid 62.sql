@@ -1,3 +1,5 @@
+USe AdventureWorksDW2014
+GO
 select * from dbo.FactSalesQuota;
 
 begin tran;
